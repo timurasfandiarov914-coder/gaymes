@@ -1,0 +1,24 @@
+config_version=5
+
+[application]
+config/name="ДИКИЙ КРАЙ"
+config/description="Стилизованная мобильная песочница о выживании в лесной долине."
+config/icon="res://icon.svg"
+run/main_scene="res://scenes/main.tscn"
+run/max_fps=60
+
+[display]
+window/size/viewport_width=1600
+window/size/viewport_height=900
+window/handheld/orientation=0
+window/energy_saving/keep_screen_on=true
+window/stretch/mode="canvas_items"
+
+[physics]
+3d/default_gravity=19.6
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+environment/defaults/default_clear_color=Color(0.58, 0.75, 0.84, 1)

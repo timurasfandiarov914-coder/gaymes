@@ -1,0 +1,70 @@
+name: Build DIKIY KRAI Android APK
+
+on:
+  push:
+    branches: [main, dikiy-kray]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dikiy-kray-android
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Validate and export APK
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.7.2
+    steps:
+      - name: Checkout clean game branch
+        uses: actions/checkout@v4
+
+      - name: Configure Android templates and debug signing
+        run: |
+          mkdir -p "$HOME/.local/share/godot/export_templates" "$HOME/.config"
+          if [ "$HOME" != "/root" ]; then
+            cp -a /root/.local/share/godot/export_templates/4.7.2.stable "$HOME/.local/share/godot/export_templates/"
+            cp -a /root/.config/godot "$HOME/.config/"
+          fi
+          test -s "$HOME/.local/share/godot/export_templates/4.7.2.stable/android_debug.apk"
+          if [ ! -s /root/debug.keystore ]; then
+            keytool -genkeypair -v -keystore /root/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Import and check scripts
+        shell: bash
+        run: |
+          set -o pipefail
+          godot --headless --editor --path . --quit 2>&1 | tee /tmp/godot-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" /tmp/godot-import.log; then
+            echo "Godot script/import errors detected."
+            exit 1
+          fi
+
+      - name: Smoke-test scene
+        shell: bash
+        run: |
+          set -o pipefail
+          godot --headless --path . --quit-after 5 2>&1 | tee /tmp/godot-smoke.log
+          if grep -E "SCRIPT ERROR|Parse Error|Invalid call|Invalid get index" /tmp/godot-smoke.log; then
+            echo "Godot runtime errors detected."
+            exit 1
+          fi
+
+      - name: Export Android APK
+        run: |
+          mkdir -p build
+          godot --headless --verbose --path . --export-debug "Android" build/DIKIY_KRAI.apk
+          test -s build/DIKIY_KRAI.apk
+          ls -lh build/DIKIY_KRAI.apk
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DIKIY-KRAI-debug-apk
+          path: build/DIKIY_KRAI.apk
+          if-no-files-found: error
+          retention-days: 30
