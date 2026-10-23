@@ -51,11 +51,11 @@ func _process(delta: float) -> void:
 			ripple.rotation.y = sin(_world_time * 0.24 + float(index)) * 0.035
 
 func _build_materials() -> void:
-	_materials["ground"] = _material(Color("#6d8750"))
-	_materials["grass"] = _material(Color("#81995b"))
-	_materials["grass_detail"] = _material(Color("#91a960"))
-	_materials["path"] = _material(Color("#9a865c"))
-	_materials["sand"] = _material(Color("#b4a174"))
+	_materials["ground"] = _material(Color("#587344"))
+	_materials["grass"] = _material(Color("#708c50"))
+	_materials["grass_detail"] = _material(Color("#7c984f"))
+	_materials["path"] = _material(Color("#8c774f"))
+	_materials["sand"] = _material(Color("#a99363"))
 	_materials["wood"] = _material(Color("#876044"))
 	_materials["bark"] = _material(Color("#604531"))
 	_materials["birch"] = _material(Color("#ded8bd"))
@@ -92,20 +92,20 @@ func _build_sky() -> void:
 	var sky := Sky.new()
 	var sky_material := ProceduralSkyMaterial.new()
 	sky_material.sky_top_color = Color("#426f88")
-	sky_material.sky_horizon_color = Color("#c7d7c1")
+	sky_material.sky_horizon_color = Color("#a9c3b8")
 	sky_material.sky_curve = 0.18
-	sky_material.ground_bottom_color = Color("#4f6248")
-	sky_material.ground_horizon_color = Color("#b4c2a0")
+	sky_material.ground_bottom_color = Color("#42553e")
+	sky_material.ground_horizon_color = Color("#96aa8d")
 	sky_material.ground_curve = 0.14
 	sky.sky_material = sky_material
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color("#cad8bd")
-	environment.ambient_light_energy = 0.82
+	environment.ambient_light_color = Color("#a8b99f")
+	environment.ambient_light_energy = 0.58
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.fog_enabled = true
-	environment.fog_light_color = Color("#c4d2bc")
-	environment.fog_density = 0.004
+	environment.fog_light_color = Color("#a8b9a5")
+	environment.fog_density = 0.0026
 	environment.fog_sky_affect = 0.35
 	world.environment = environment
 	add_child(world)
@@ -113,8 +113,8 @@ func _build_sky() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.name = "LateMorningSun"
 	sun.rotation_degrees = Vector3(-48.0, -32.0, 0.0)
-	sun.light_color = Color("#ffe7c2")
-	sun.light_energy = 1.25
+	sun.light_color = Color("#f1dfbd")
+	sun.light_energy = 0.88
 	sun.shadow_enabled = true
 	add_child(sun)
 
@@ -285,10 +285,10 @@ func _build_distant_ridge() -> void:
 func _spawn_forest() -> void:
 	# Trees near the player frame the trail but deliberately leave the centre open.
 	var foreground: Array[Vector4] = [
-		Vector4(-10.0, -4.0, 1.25, 0.0),
-		Vector4(11.0, -5.0, 1.18, 1.0),
-		Vector4(-14.0, -10.0, 1.35, 0.0),
-		Vector4(15.0, -11.0, 1.15, 2.0),
+		Vector4(-11.0, -7.0, 0.78, 0.0),
+		Vector4(11.0, -8.0, 0.8, 1.0),
+		Vector4(-14.0, -12.0, 1.0, 0.0),
+		Vector4(15.0, -13.0, 0.95, 2.0),
 		Vector4(-8.0, -14.0, 0.96, 1.0),
 		Vector4(8.0, -14.5, 1.05, 0.0),
 		Vector4(-20.0, -19.0, 1.35, 2.0),
