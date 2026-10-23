@@ -2,16 +2,22 @@ extends Node3D
 
 const PLAYER_SCENE: PackedScene = preload("res://scenes/player.tscn")
 const JOYSTICK_SCRIPT: Script = preload("res://scripts/joystick.gd")
+const STREAM_Z := -19.5
 
 var player: SurvivalPlayer
-var stats_label: Label
 var inventory_label: Label
 var objective_label: Label
+var objective_title: Label
 var message_label: Label
+var message_panel: Panel
 var _message_timer := 0.0
 var _campfire_count := 0
 var _rng := RandomNumberGenerator.new()
 var _materials: Dictionary = {}
+var _stat_bars: Dictionary = {}
+var _stat_values: Dictionary = {}
+var _water_ripples: Array[MeshInstance3D] = []
+var _world_time := 0.0
 
 func _ready() -> void:
 	_rng.seed = 29102026
@@ -21,34 +27,58 @@ func _ready() -> void:
 	_build_river_and_bridge()
 	_build_distant_ridge()
 	_spawn_forest()
+	_spawn_ground_detail()
 	_spawn_resources()
 	_spawn_player()
 	_build_hud()
-	_set_message("Дикий край. Собери ресурсы и поставь первый костёр.")
+	_set_message("Дикий край. Осмотрись и собери ресурсы для первого костра.")
 
 func _process(delta: float) -> void:
+	_world_time += delta
 	if _message_timer > 0.0:
 		_message_timer -= delta
-		if _message_timer <= 0.0 and is_instance_valid(message_label):
-			message_label.text = ""
+		if _message_timer <= 0.0:
+			if is_instance_valid(message_label):
+				message_label.text = ""
+			if is_instance_valid(message_panel):
+				message_panel.visible = false
+	for index in range(_water_ripples.size()):
+		var ripple := _water_ripples[index]
+		if is_instance_valid(ripple):
+			ripple.position.x += delta * (0.18 + float(index % 4) * 0.05)
+			if ripple.position.x > 102.0:
+				ripple.position.x = -102.0
+			ripple.rotation.y = sin(_world_time * 0.24 + float(index)) * 0.035
 
 func _build_materials() -> void:
-	_materials["ground"] = _material(Color("#627c4a"))
-	_materials["grass"] = _material(Color("#7c9657"))
-	_materials["wood"] = _material(Color("#71503a"))
-	_materials["bark"] = _material(Color("#59412f"))
+	_materials["ground"] = _material(Color("#6d8750"))
+	_materials["grass"] = _material(Color("#81995b"))
+	_materials["grass_detail"] = _material(Color("#91a960"))
+	_materials["path"] = _material(Color("#9a865c"))
+	_materials["sand"] = _material(Color("#b4a174"))
+	_materials["wood"] = _material(Color("#876044"))
+	_materials["bark"] = _material(Color("#604531"))
+	_materials["birch"] = _material(Color("#ded8bd"))
+	_materials["bark_mark"] = _material(Color("#4b4a3b"))
 	_materials["leaf1"] = _material(Color("#315c3c"))
 	_materials["leaf2"] = _material(Color("#47744a"))
-	_materials["stone"] = _material(Color("#858c89"))
-	_materials["stone_dark"] = _material(Color("#59645e"))
-	_materials["water"] = _material(Color("#5aabb8"), 0.22)
-	_materials["berry"] = _material(Color("#c34e4b"))
+	_materials["leaf3"] = _material(Color("#63854e"))
+	_materials["stone"] = _material(Color("#a2aaa1"))
+	_materials["stone_dark"] = _material(Color("#66756c"))
+	_materials["mountain1"] = _material(Color("#566b50"))
+	_materials["mountain2"] = _material(Color("#71805a"))
+	_materials["water"] = _material(Color("#3e9ba9"), 0.24, Color("#286c78"), 0.08)
+	_materials["water_glint"] = _material(Color("#b9e7d9", 0.38), 0.3, Color("#8fd6cf"))
+	_materials["berry"] = _material(Color("#d84f55"), 0.65, Color("#751b30"))
 	_materials["fire"] = _material(Color("#ff9b35"), 0.4, Color("#ff712d"))
 
-func _material(color: Color, roughness: float = 1.0, emission: Color = Color.BLACK) -> StandardMaterial3D:
+func _material(color: Color, roughness: float = 1.0, emission: Color = Color.BLACK, metallic: float = 0.0) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
 	mat.roughness = roughness
+	mat.metallic = metallic
+	if color.a < 0.99:
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	if emission != Color.BLACK:
 		mat.emission_enabled = true
 		mat.emission = emission
@@ -56,26 +86,36 @@ func _material(color: Color, roughness: float = 1.0, emission: Color = Color.BLA
 
 func _build_sky() -> void:
 	var world := WorldEnvironment.new()
+	world.name = "ForestAtmosphere"
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
 	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color("#56819a")
-	sky_material.sky_horizon_color = Color("#d6d9be")
-	sky_material.ground_bottom_color = Color("#45594b")
-	sky_material.ground_horizon_color = Color("#a4b39a")
+	sky_material.sky_top_color = Color("#426f88")
+	sky_material.sky_horizon_color = Color("#c7d7c1")
+	sky_material.sky_curve = 0.18
+	sky_material.ground_bottom_color = Color("#4f6248")
+	sky_material.ground_horizon_color = Color("#b4c2a0")
+	sky_material.ground_curve = 0.14
 	sky.sky_material = sky_material
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color("#b9c8aa")
-	environment.ambient_light_energy = 0.72
+	environment.ambient_light_color = Color("#cad8bd")
+	environment.ambient_light_energy = 0.82
+	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	environment.fog_enabled = true
+	environment.fog_light_color = Color("#c4d2bc")
+	environment.fog_density = 0.004
+	environment.fog_sky_affect = 0.35
 	world.environment = environment
 	add_child(world)
+
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-47.0, -28.0, 0.0)
-	sun.light_color = Color("#ffe5bd")
-	sun.light_energy = 1.15
-	sun.shadow_enabled = false
+	sun.name = "LateMorningSun"
+	sun.rotation_degrees = Vector3(-48.0, -32.0, 0.0)
+	sun.light_color = Color("#ffe7c2")
+	sun.light_energy = 1.25
+	sun.shadow_enabled = true
 	add_child(sun)
 
 func _build_ground() -> void:
@@ -87,6 +127,7 @@ func _build_ground() -> void:
 	ground_mesh.size = Vector3(220.0, 1.0, 220.0)
 	mesh.mesh = ground_mesh
 	mesh.material_override = _materials["ground"]
+	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	body.add_child(mesh)
 	var collision := CollisionShape3D.new()
 	var ground_shape := BoxShape3D.new()
@@ -94,51 +135,88 @@ func _build_ground() -> void:
 	collision.shape = ground_shape
 	body.add_child(collision)
 	add_child(body)
-	for i in range(28):
+
+	# A readable footpath leads the eye from the starting point to the crossing.
+	var path := MeshInstance3D.new()
+	path.name = "WornForestTrail"
+	var path_mesh := PlaneMesh.new()
+	path_mesh.size = Vector2(4.6, 17.0)
+	path.mesh = path_mesh
+	path.material_override = _materials["path"]
+	path.position = Vector3(0.0, 0.012, -7.9)
+	add_child(path)
+
+	# Irregular grassy clearings break up the flat colour without heavy textures.
+	for i in range(24):
 		var patch := MeshInstance3D.new()
 		var patch_mesh := SphereMesh.new()
-		patch_mesh.radius = _rng.randf_range(1.8, 5.0)
-		patch_mesh.height = patch_mesh.radius * 0.55
+		patch_mesh.radius = _rng.randf_range(2.0, 5.5)
+		patch_mesh.height = patch_mesh.radius * 0.075
+		patch_mesh.radial_segments = 7
+		patch_mesh.rings = 3
 		patch.mesh = patch_mesh
 		patch.material_override = _materials["grass"] if i % 3 == 0 else _materials["ground"]
-		patch.position = Vector3(_rng.randf_range(-95, 95), -0.1, _rng.randf_range(-95, 95))
-		patch.scale = Vector3(1.0, 0.22, _rng.randf_range(0.7, 1.5))
+		patch.position = Vector3(_rng.randf_range(-65.0, 65.0), 0.015, _rng.randf_range(-70.0, 70.0))
+		patch.scale = Vector3(1.0, 1.0, _rng.randf_range(0.75, 1.65))
+		patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(patch)
 
 func _build_river_and_bridge() -> void:
+	# The stream now crosses the player's forward view instead of hiding off to one side.
+	for shore_z in [STREAM_Z - 6.1, STREAM_Z + 6.1]:
+		var shore := MeshInstance3D.new()
+		var shore_mesh := PlaneMesh.new()
+		shore_mesh.size = Vector2(220.0, 2.2)
+		shore.mesh = shore_mesh
+		shore.material_override = _materials["sand"]
+		shore.position = Vector3(0.0, 0.018, shore_z)
+		add_child(shore)
+
 	var water := MeshInstance3D.new()
-	water.name = "ColdStreamVisual"
+	water.name = "ColdForestStream"
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(12.0, 190.0)
-	plane.subdivide_width = 1
-	plane.subdivide_depth = 1
+	plane.size = Vector2(220.0, 10.3)
 	water.mesh = plane
 	water.material_override = _materials["water"]
-	water.position = Vector3(15.0, 0.035, 0.0)
+	water.position = Vector3(0.0, 0.032, STREAM_Z)
+	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(water)
+
+	for index in range(28):
+		var glint := MeshInstance3D.new()
+		var glint_mesh := PlaneMesh.new()
+		glint_mesh.size = Vector2(_rng.randf_range(0.45, 1.7), _rng.randf_range(0.025, 0.075))
+		glint.mesh = glint_mesh
+		glint.material_override = _materials["water_glint"]
+		glint.position = Vector3(_rng.randf_range(-96.0, 96.0), 0.052, STREAM_Z + _rng.randf_range(-4.7, 4.7))
+		glint.rotation_degrees.y = _rng.randf_range(-12.0, 12.0)
+		glint.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(glint)
+		_water_ripples.append(glint)
 
 	var water_area := Area3D.new()
 	water_area.name = "DrinkableStream"
-	water_area.position = Vector3(15.0, 0.8, 0.0)
+	water_area.position = Vector3(0.0, 0.8, STREAM_Z)
 	water_area.collision_layer = 2
 	water_area.collision_mask = 0
 	water_area.set_meta("kind", "water")
 	var water_shape := CollisionShape3D.new()
 	var water_box := BoxShape3D.new()
-	water_box.size = Vector3(12.0, 2.4, 190.0)
+	water_box.size = Vector3(220.0, 2.4, 10.3)
 	water_shape.shape = water_box
 	water_area.add_child(water_shape)
 	add_child(water_area)
 
-	for plank_index in range(9):
-		var z := -10.0 + float(plank_index) * 0.75
+	# A small timber footbridge, with planks, support beams and handrails.
+	for plank_index in range(13):
+		var z := STREAM_Z - 5.0 + float(plank_index) * 0.82
 		var plank := StaticBody3D.new()
-		plank.position = Vector3(15.0, 0.3, z)
+		plank.position = Vector3(0.0, 0.22, z)
 		var plank_mesh := MeshInstance3D.new()
 		var box := BoxMesh.new()
-		box.size = Vector3(15.0, 0.22, 0.65)
+		box.size = Vector3(3.1, 0.18, 0.78)
 		plank_mesh.mesh = box
-		plank_mesh.material_override = _materials["wood"]
+		plank_mesh.material_override = _materials["wood"] if plank_index % 3 != 0 else _materials["bark"]
 		plank.add_child(plank_mesh)
 		var plank_collision := CollisionShape3D.new()
 		var plank_shape := BoxShape3D.new()
@@ -147,76 +225,258 @@ func _build_river_and_bridge() -> void:
 		plank.add_child(plank_collision)
 		add_child(plank)
 
+	for side in [-1.0, 1.0]:
+		var beam := StaticBody3D.new()
+		beam.position = Vector3(side * 1.48, 0.36, STREAM_Z)
+		var beam_mesh := MeshInstance3D.new()
+		var beam_box := BoxMesh.new()
+		beam_box.size = Vector3(0.16, 0.28, 10.3)
+		beam_mesh.mesh = beam_box
+		beam_mesh.material_override = _materials["wood"]
+		beam.add_child(beam_mesh)
+		var beam_collision := CollisionShape3D.new()
+		var beam_shape := BoxShape3D.new()
+		beam_shape.size = beam_box.size
+		beam_collision.shape = beam_shape
+		beam.add_child(beam_collision)
+		add_child(beam)
+
+		for post_index in range(5):
+			var post := MeshInstance3D.new()
+			var post_mesh := BoxMesh.new()
+			post_mesh.size = Vector3(0.17, 0.9, 0.17)
+			post.mesh = post_mesh
+			post.material_override = _materials["bark"]
+			post.position = Vector3(side * 1.48, 0.62, STREAM_Z - 4.6 + float(post_index) * 2.3)
+			add_child(post)
+
+		var rail := MeshInstance3D.new()
+		var rail_mesh := BoxMesh.new()
+		rail_mesh.size = Vector3(0.14, 0.14, 10.0)
+		rail.mesh = rail_mesh
+		rail.material_override = _materials["wood"]
+		rail.position = Vector3(side * 1.48, 1.02, STREAM_Z)
+		add_child(rail)
+
 func _build_distant_ridge() -> void:
-	for i in range(12):
-		var ridge := MeshInstance3D.new()
-		var rock := SphereMesh.new()
-		rock.radius = _rng.randf_range(8.0, 15.0)
-		rock.height = rock.radius * 1.45
-		ridge.mesh = rock
-		ridge.material_override = _materials["stone_dark"]
-		var side := -1.0 if i % 2 == 0 else 1.0
-		ridge.position = Vector3(side * _rng.randf_range(80, 103), rock.radius * 0.5 - 0.5, _rng.randf_range(-85, 85))
-		ridge.scale = Vector3(1.1, 1.4, _rng.randf_range(0.75, 1.25))
-		add_child(ridge)
+	# Angular low-poly peaks replace the oversized spherical shapes on the horizon.
+	var peaks: Array[Vector4] = [
+		Vector4(-82.0, -92.0, 29.0, 20.0),
+		Vector4(-53.0, -102.0, 36.0, 25.0),
+		Vector4(-21.0, -108.0, 24.0, 17.0),
+		Vector4(10.0, -111.0, 34.0, 24.0),
+		Vector4(44.0, -100.0, 28.0, 20.0),
+		Vector4(77.0, -90.0, 31.0, 22.0)
+	]
+	for index in range(peaks.size()):
+		var peak := MeshInstance3D.new()
+		var mountain := CylinderMesh.new()
+		mountain.top_radius = _rng.randf_range(0.0, 1.7)
+		mountain.bottom_radius = peaks[index].z
+		mountain.height = peaks[index].w
+		mountain.radial_segments = 6 if index % 2 == 0 else 7
+		peak.mesh = mountain
+		peak.material_override = _materials["mountain1"] if index % 2 == 0 else _materials["mountain2"]
+		peak.position = Vector3(peaks[index].x, peaks[index].w * 0.46, peaks[index].y)
+		peak.rotation_degrees.y = float(index * 17)
+		peak.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(peak)
 
 func _spawn_forest() -> void:
-	for i in range(64):
-		var x := _rng.randf_range(-92.0, 92.0)
-		var z := _rng.randf_range(-92.0, 92.0)
-		if Vector2(x, z).length() < 10.0 or absf(x - 15.0) < 10.0:
-			continue
-		_spawn_tree(Vector3(x, 0.0, z), _rng.randf_range(0.75, 1.3))
+	# Trees near the player frame the trail but deliberately leave the centre open.
+	var foreground: Array[Vector4] = [
+		Vector4(-10.0, -4.0, 1.25, 0.0),
+		Vector4(11.0, -5.0, 1.18, 1.0),
+		Vector4(-14.0, -10.0, 1.35, 0.0),
+		Vector4(15.0, -11.0, 1.15, 2.0),
+		Vector4(-8.0, -14.0, 0.96, 1.0),
+		Vector4(8.0, -14.5, 1.05, 0.0),
+		Vector4(-20.0, -19.0, 1.35, 2.0),
+		Vector4(22.0, -20.0, 1.25, 0.0),
+		Vector4(-12.0, -27.0, 1.05, 1.0),
+		Vector4(13.0, -31.0, 1.1, 0.0),
+		Vector4(-30.0, -8.0, 1.4, 0.0),
+		Vector4(31.0, -12.0, 1.35, 2.0)
+	]
+	for tree_data in foreground:
+		_spawn_tree(Vector3(tree_data.x, 0.0, tree_data.y), tree_data.z, int(tree_data.w))
 
-func _spawn_tree(pos: Vector3, scale_factor: float) -> void:
-	var trunk := StaticBody3D.new()
-	trunk.position = pos
+	var spawned := 0
+	while spawned < 92:
+		var x := _rng.randf_range(-76.0, 76.0)
+		var z := _rng.randf_range(-84.0, 70.0)
+		var clear := true
+		if Vector2(x, z).length() < 8.0:
+			clear = false
+		if absf(x) < 4.6 and z < 0.0 and z > STREAM_Z - 5.5:
+			clear = false
+		if absf(z - STREAM_Z) < 6.2 and absf(x) < 5.0:
+			clear = false
+		if clear:
+			_spawn_tree(Vector3(x, 0.0, z), _rng.randf_range(0.72, 1.42), -1)
+			spawned += 1
+
+func _spawn_tree(pos: Vector3, scale_factor: float, tree_kind: int = -1) -> void:
+	var kind := tree_kind if tree_kind >= 0 else _rng.randi_range(0, 2)
+	var tree := Node3D.new()
+	tree.name = "ForestTree"
+	tree.position = pos
+	tree.scale = Vector3.ONE * scale_factor
+	add_child(tree)
+
+	var trunk_height := _rng.randf_range(2.35, 3.1)
+	var trunk_radius := _rng.randf_range(0.19, 0.27)
+	var trunk_body := StaticBody3D.new()
+	trunk_body.position.y = trunk_height * 0.5
+	tree.add_child(trunk_body)
+
 	var trunk_mesh := MeshInstance3D.new()
-	var cylinder := CylinderMesh.new()
-	cylinder.top_radius = 0.16
-	cylinder.bottom_radius = 0.28
-	cylinder.height = 2.25
-	cylinder.radial_segments = 6
-	trunk_mesh.mesh = cylinder
-	trunk_mesh.material_override = _materials["bark"]
-	trunk_mesh.position.y = 1.12 * scale_factor
-	trunk_mesh.scale = Vector3.ONE * scale_factor
-	trunk.add_child(trunk_mesh)
+	var trunk := CylinderMesh.new()
+	trunk.top_radius = trunk_radius * 0.62
+	trunk.bottom_radius = trunk_radius
+	trunk.height = trunk_height
+	trunk.radial_segments = 6
+	trunk_mesh.mesh = trunk
+	trunk_mesh.material_override = _materials["birch"] if kind == 2 else _materials["bark"]
+	trunk_body.add_child(trunk_mesh)
+
 	var trunk_collision := CollisionShape3D.new()
 	var trunk_shape := CylinderShape3D.new()
-	trunk_shape.radius = 0.27 * scale_factor
-	trunk_shape.height = 2.2 * scale_factor
+	trunk_shape.radius = trunk_radius
+	trunk_shape.height = trunk_height
 	trunk_collision.shape = trunk_shape
-	trunk_collision.position.y = 1.1 * scale_factor
-	trunk.add_child(trunk_collision)
-	add_child(trunk)
-	for crown_index in range(3):
-		var crown := MeshInstance3D.new()
-		var cone := CylinderMesh.new()
-		cone.top_radius = 0.0
-		cone.bottom_radius = (1.25 - float(crown_index) * 0.12) * scale_factor
-		cone.height = 2.1 * scale_factor
-		cone.radial_segments = 6
-		crown.mesh = cone
-		crown.material_override = _materials["leaf1"] if crown_index % 2 == 0 else _materials["leaf2"]
-		crown.position = pos + Vector3(0.0, (2.3 + float(crown_index) * 0.9) * scale_factor, 0.0)
-		add_child(crown)
+	trunk_body.add_child(trunk_collision)
+
+	if kind == 2:
+		for band_index in range(4):
+			var band := MeshInstance3D.new()
+			var band_mesh := CylinderMesh.new()
+			band_mesh.top_radius = trunk_radius * 0.68
+			band_mesh.bottom_radius = trunk_radius * 0.75
+			band_mesh.height = 0.075
+			band_mesh.radial_segments = 6
+			band.mesh = band_mesh
+			band.material_override = _materials["bark_mark"]
+			band.position.y = -trunk_height * 0.5 + 0.42 + float(band_index) * 0.52
+			trunk_body.add_child(band)
+
+	if kind == 0:
+		for crown_index in range(3):
+			var crown := MeshInstance3D.new()
+			var cone := CylinderMesh.new()
+			cone.top_radius = 0.0
+			cone.bottom_radius = (1.55 - float(crown_index) * 0.19)
+			cone.height = 2.75
+			cone.radial_segments = 7
+			crown.mesh = cone
+			crown.material_override = _materials["leaf1"] if crown_index % 2 == 0 else _materials["leaf2"]
+			crown.position.y = trunk_height - 0.45 + float(crown_index) * 1.0
+			tree.add_child(crown)
+	else:
+		var canopy_count := 3 if kind == 1 else 2
+		for canopy_index in range(canopy_count):
+			var canopy := MeshInstance3D.new()
+			var canopy_mesh := SphereMesh.new()
+			canopy_mesh.radius = _rng.randf_range(1.25, 1.7)
+			canopy_mesh.height = _rng.randf_range(2.2, 2.9)
+			canopy_mesh.radial_segments = 7
+			canopy_mesh.rings = 4
+			canopy.mesh = canopy_mesh
+			canopy.material_override = _materials["leaf2"] if canopy_index % 2 == 0 else _materials["leaf3"]
+			var side_offset := 0.0 if canopy_index == 0 else (0.72 if canopy_index % 2 == 1 else -0.72)
+			canopy.position = Vector3(side_offset, trunk_height + 0.25 + (0.35 if canopy_index > 0 else 0.0), 0.0)
+			tree.add_child(canopy)
+
+func _spawn_ground_detail() -> void:
+	# MultiMesh keeps the little bits of grass cheap enough for a phone GPU.
+	var tuft_mesh := CylinderMesh.new()
+	tuft_mesh.top_radius = 0.0
+	tuft_mesh.bottom_radius = 0.085
+	tuft_mesh.height = 0.34
+	tuft_mesh.radial_segments = 3
+	var tuft_multi := MultiMesh.new()
+	tuft_multi.transform_format = MultiMesh.TRANSFORM_3D
+	tuft_multi.mesh = tuft_mesh
+	tuft_multi.instance_count = 680
+	for i in range(tuft_multi.instance_count):
+		var x := _rng.randf_range(-47.0, 47.0)
+		var z := _rng.randf_range(-48.0, 35.0)
+		if absf(x) < 3.2 and z < 0.0 and z > STREAM_Z - 4.0:
+			x += 5.0 if x >= 0.0 else -5.0
+		if absf(z - STREAM_Z) < 5.9:
+			z += 7.0 if z >= STREAM_Z else -7.0
+		var scale := _rng.randf_range(0.55, 1.4)
+		var transform := Transform3D(Basis(Vector3.UP, _rng.randf_range(0.0, TAU)).scaled(Vector3(scale, scale, scale)), Vector3(x, 0.15 * scale, z))
+		tuft_multi.set_instance_transform(i, transform)
+	var tufts := MultiMeshInstance3D.new()
+	tufts.name = "MeadowGrass"
+	tufts.multimesh = tuft_multi
+	tufts.material_override = _materials["grass_detail"]
+	tufts.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(tufts)
+
+	var pebble_mesh := SphereMesh.new()
+	pebble_mesh.radius = 0.28
+	pebble_mesh.height = 0.22
+	pebble_mesh.radial_segments = 5
+	pebble_mesh.rings = 3
+	var pebble_multi := MultiMesh.new()
+	pebble_multi.transform_format = MultiMesh.TRANSFORM_3D
+	pebble_multi.mesh = pebble_mesh
+	pebble_multi.instance_count = 90
+	for i in range(pebble_multi.instance_count):
+		var x := _rng.randf_range(-38.0, 38.0)
+		var z := _rng.randf_range(-34.0, 30.0)
+		if absf(x) < 4.0 and z < 0.0 and z > STREAM_Z - 5.0:
+			x += 5.0 if x >= 0.0 else -5.0
+		var scale := _rng.randf_range(0.22, 0.78)
+		pebble_multi.set_instance_transform(i, Transform3D(Basis(Vector3.UP, _rng.randf_range(0.0, TAU)).scaled(Vector3(scale * 1.3, scale * 0.7, scale)), Vector3(x, 0.06 * scale, z)))
+	var pebbles := MultiMeshInstance3D.new()
+	pebbles.name = "ScatteredPebbles"
+	pebbles.multimesh = pebble_multi
+	pebbles.material_override = _materials["stone_dark"]
+	pebbles.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(pebbles)
 
 func _spawn_resources() -> void:
-	for i in range(30):
+	# A few pickups start within sight and walking distance; the rest reward exploring.
+	var starter_branches: Array[Vector2] = [
+		Vector2(-3.4, -3.8), Vector2(4.2, -5.8), Vector2(-5.3, -8.7),
+		Vector2(5.4, -10.2), Vector2(-1.8, -12.4), Vector2(8.2, -4.1)
+	]
+	var starter_stones: Array[Vector2] = [
+		Vector2(3.0, -3.0), Vector2(-6.2, -5.0), Vector2(6.8, -8.6),
+		Vector2(-3.5, -13.1), Vector2(10.0, -15.0)
+	]
+	var starter_berries: Array[Vector2] = [
+		Vector2(-7.2, -3.2), Vector2(7.4, -6.2), Vector2(-9.0, -12.0)
+	]
+	for point in starter_branches:
+		_spawn_resource("branch", Vector3(point.x, 0.0, point.y), 1, "Ветка")
+	for point in starter_stones:
+		_spawn_resource("stone", Vector3(point.x, 0.0, point.y), 1, "Камень")
+	for point in starter_berries:
+		_spawn_resource("berry", Vector3(point.x, 0.0, point.y), 2, "Лесные ягоды")
+
+	for i in range(24):
 		_spawn_resource("branch", _random_ground_position(), 1, "Ветка")
-	for i in range(22):
+	for i in range(18):
 		_spawn_resource("stone", _random_ground_position(), 1, "Камень")
-	for i in range(14):
+	for i in range(11):
 		_spawn_resource("berry", _random_ground_position(), 2, "Лесные ягоды")
 
 func _random_ground_position() -> Vector3:
 	var x := 0.0
 	var z := 0.0
-	for attempt in range(30):
-		x = _rng.randf_range(-82.0, 82.0)
-		z = _rng.randf_range(-82.0, 82.0)
-		if Vector2(x, z).length() > 9.0 and absf(x - 15.0) > 9.0:
+	for attempt in range(60):
+		x = _rng.randf_range(-58.0, 58.0)
+		z = _rng.randf_range(-62.0, 56.0)
+		var valid := Vector2(x, z).length() > 8.0
+		if absf(x) < 4.3 and z < 0.0 and z > STREAM_Z - 5.5:
+			valid = false
+		if absf(z - STREAM_Z) < 5.8 and absf(x) < 4.0:
+			valid = false
+		if valid:
 			break
 	return Vector3(x, 0.0, z)
 
@@ -232,50 +492,69 @@ func _spawn_resource(item_id: String, pos: Vector3, amount: int, display_name: S
 	area.set_meta("display_name", display_name)
 	var collision := CollisionShape3D.new()
 	var sphere := SphereShape3D.new()
-	sphere.radius = 0.9
+	sphere.radius = 1.05
 	collision.shape = sphere
-	collision.position.y = 0.65
+	collision.position.y = 0.95
 	area.add_child(collision)
 
 	if item_id == "branch":
 		var mesh := MeshInstance3D.new()
 		var stick := CylinderMesh.new()
-		stick.top_radius = 0.035
-		stick.bottom_radius = 0.055
-		stick.height = 0.95
+		stick.top_radius = 0.025
+		stick.bottom_radius = 0.06
+		stick.height = 1.15
 		stick.radial_segments = 5
 		mesh.mesh = stick
 		mesh.material_override = _materials["wood"]
-		mesh.position = Vector3(0.0, 0.22, 0.0)
-		mesh.rotation_degrees.z = 68.0
+		mesh.position = Vector3(0.0, 0.18, 0.0)
+		mesh.rotation_degrees = Vector3(14.0, _rng.randf_range(0.0, 360.0), 68.0)
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		area.add_child(mesh)
 	elif item_id == "stone":
 		var mesh := MeshInstance3D.new()
 		var stone := SphereMesh.new()
-		stone.radius = 0.28
-		stone.height = 0.42
+		stone.radius = 0.31
+		stone.height = 0.4
+		stone.radial_segments = 6
+		stone.rings = 4
 		mesh.mesh = stone
 		mesh.material_override = _materials["stone"]
 		mesh.position.y = 0.22
-		mesh.scale = Vector3(1.0, 0.65, 0.8)
+		mesh.scale = Vector3(1.0, 0.68, 0.82)
 		area.add_child(mesh)
 	else:
 		var bush := MeshInstance3D.new()
 		var bush_mesh := SphereMesh.new()
-		bush_mesh.radius = 0.4
-		bush_mesh.height = 0.6
+		bush_mesh.radius = 0.46
+		bush_mesh.height = 0.67
+		bush_mesh.radial_segments = 7
+		bush_mesh.rings = 4
 		bush.mesh = bush_mesh
 		bush.material_override = _materials["leaf2"]
-		bush.position.y = 0.38
+		bush.position.y = 0.39
 		area.add_child(bush)
-		for berry_index in range(4):
+		for leaf_index in range(3):
+			var leaf := MeshInstance3D.new()
+			var leaf_mesh := SphereMesh.new()
+			leaf_mesh.radius = 0.25
+			leaf_mesh.height = 0.36
+			leaf_mesh.radial_segments = 6
+			leaf_mesh.rings = 3
+			leaf.mesh = leaf_mesh
+			leaf.material_override = _materials["leaf3"]
+			leaf.position = Vector3(cos(float(leaf_index) * TAU / 3.0) * 0.28, 0.42, sin(float(leaf_index) * TAU / 3.0) * 0.28)
+			area.add_child(leaf)
+		for berry_index in range(5):
 			var berry := MeshInstance3D.new()
 			var berry_mesh := SphereMesh.new()
-			berry_mesh.radius = 0.12
-			berry_mesh.height = 0.16
+			berry_mesh.radius = 0.115
+			berry_mesh.height = 0.15
+			berry_mesh.radial_segments = 6
+			berry_mesh.rings = 3
 			berry.mesh = berry_mesh
 			berry.material_override = _materials["berry"]
-			berry.position = Vector3(cos(float(berry_index) * TAU / 4.0) * 0.26, 0.54 + float(berry_index % 2) * 0.14, sin(float(berry_index) * TAU / 4.0) * 0.26)
+			var angle := float(berry_index) * TAU / 5.0
+			berry.position = Vector3(cos(angle) * 0.3, 0.53 + float(berry_index % 2) * 0.16, sin(angle) * 0.3)
 			area.add_child(berry)
 	add_child(area)
 
@@ -298,71 +577,159 @@ func _build_hud() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(root)
 
-	stats_label = Label.new()
-	stats_label.position = Vector2(24.0, 16.0)
-	stats_label.size = Vector2(610.0, 44.0)
-	stats_label.add_theme_font_size_override("font_size", 23)
-	stats_label.add_theme_color_override("font_color", Color("#f5f4dc"))
-	root.add_child(stats_label)
+	# Compact translucent panels reserve separate spaces for survival, objective and inventory.
+	var stats_panel := _create_panel(root, "SurvivalPanel")
+	stats_panel.position = Vector2(20.0, 18.0)
+	stats_panel.size = Vector2(360.0, 154.0)
+	var stats_heading := _make_label(stats_panel, "СОСТОЯНИЕ", Vector2(15.0, 7.0), Vector2(325.0, 20.0), 14, Color("#c4d8b3"))
+	stats_heading.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.35))
+	stats_heading.add_theme_constant_override("shadow_offset_x", 1)
+	stats_heading.add_theme_constant_override("shadow_offset_y", 1)
+	_add_stat_row(stats_panel, "health", "ЗДОРОВЬЕ", 31.0, Color("#d66c62"))
+	_add_stat_row(stats_panel, "hunger", "СЫТОСТЬ", 59.0, Color("#e1b45d"))
+	_add_stat_row(stats_panel, "thirst", "ЖАЖДА", 87.0, Color("#70c4d2"))
+	_add_stat_row(stats_panel, "stamina", "ВЫНОСЛИВОСТЬ", 115.0, Color("#9acb72"))
 
-	inventory_label = Label.new()
-	inventory_label.position = Vector2(24.0, 55.0)
-	inventory_label.size = Vector2(610.0, 40.0)
-	inventory_label.add_theme_font_size_override("font_size", 20)
-	inventory_label.add_theme_color_override("font_color", Color("#e1e7cf"))
-	root.add_child(inventory_label)
+	var objective_panel := _create_panel(root, "ObjectivePanel")
+	objective_panel.anchor_left = 0.5
+	objective_panel.anchor_right = 0.5
+	objective_panel.offset_left = -210.0
+	objective_panel.offset_right = 210.0
+	objective_panel.offset_top = 18.0
+	objective_panel.offset_bottom = 112.0
+	objective_title = _make_label(objective_panel, "ЗАДАЧА 01  /  ПЕРВЫЙ ЛАГЕРЬ", Vector2(17.0, 8.0), Vector2(386.0, 22.0), 13, Color("#e4c98d"))
+	objective_label = _make_label(objective_panel, "Собери 3 ветки и 2 камня,\nзатем поставь костёр", Vector2(17.0, 32.0), Vector2(386.0, 52.0), 17, Color("#f3f2e4"))
+	objective_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
-	objective_label = Label.new()
-	objective_label.anchor_left = 0.5
-	objective_label.anchor_right = 0.5
-	objective_label.offset_left = -250.0
-	objective_label.offset_right = 250.0
-	objective_label.offset_top = 18.0
-	objective_label.offset_bottom = 64.0
-	objective_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	objective_label.add_theme_font_size_override("font_size", 22)
-	objective_label.add_theme_color_override("font_color", Color("#fff4ce"))
-	objective_label.text = "ЦЕЛЬ: собери 3 ветки и 2 камня, поставь костёр"
-	root.add_child(objective_label)
+	var inventory_panel := _create_panel(root, "InventoryPanel")
+	inventory_panel.anchor_left = 1.0
+	inventory_panel.anchor_right = 1.0
+	inventory_panel.offset_left = -286.0
+	inventory_panel.offset_right = -20.0
+	inventory_panel.offset_top = 18.0
+	inventory_panel.offset_bottom = 112.0
+	var inventory_heading := _make_label(inventory_panel, "РЮКЗАК", Vector2(15.0, 8.0), Vector2(235.0, 22.0), 13, Color("#c4d8b3"))
+	inventory_label = _make_label(inventory_panel, "", Vector2(15.0, 32.0), Vector2(238.0, 52.0), 15, Color("#f3f2e4"))
+	inventory_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
-	message_label = Label.new()
-	message_label.anchor_left = 0.5
-	message_label.anchor_right = 0.5
-	message_label.anchor_top = 0.68
-	message_label.anchor_bottom = 0.68
-	message_label.offset_left = -300.0
-	message_label.offset_right = 300.0
-	message_label.offset_top = -30.0
-	message_label.offset_bottom = 30.0
+	message_panel = _create_panel(root, "MessagePanel")
+	message_panel.anchor_left = 0.5
+	message_panel.anchor_right = 0.5
+	message_panel.anchor_top = 0.68
+	message_panel.anchor_bottom = 0.68
+	message_panel.offset_left = -275.0
+	message_panel.offset_right = 275.0
+	message_panel.offset_top = -38.0
+	message_panel.offset_bottom = 38.0
+	message_panel.visible = false
+	message_label = _make_label(message_panel, "", Vector2(18.0, 8.0), Vector2(514.0, 60.0), 18, Color("#fff5dc"))
 	message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	message_label.add_theme_font_size_override("font_size", 25)
-	message_label.add_theme_color_override("font_color", Color("#fff4ce"))
-	root.add_child(message_label)
+	message_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
-	var joystick: Variant = Control.new()
+	_add_crosshair(root)
+
+	var joystick: Control = Control.new()
 	joystick.name = "MoveJoystick"
 	joystick.anchor_left = 0.0
 	joystick.anchor_top = 0.36
 	joystick.anchor_right = 0.44
 	joystick.anchor_bottom = 1.0
 	joystick.set_script(JOYSTICK_SCRIPT)
-	joystick_script_setup(joystick)
+	joystick.offset_left = 0.0
+	joystick.offset_top = 0.0
+	joystick.offset_right = 0.0
+	joystick.offset_bottom = 0.0
+	joystick.mouse_filter = Control.MOUSE_FILTER_STOP
 	root.add_child(joystick)
 	joystick.vector_changed.connect(player.set_move_vector)
 
-	_add_action_button(root, "БЕГ", 16.0, player.toggle_run)
-	_add_action_button(root, "ЯГОДЫ", 128.0, player.eat_berry)
-	_add_action_button(root, "ВЗЯТЬ", 240.0, player.interact)
-	_add_action_button(root, "КОСТЁР", 352.0, player.request_campfire)
+	_add_action_button(root, "БЕГ", 20.0, player.toggle_run)
+	_add_action_button(root, "ЯГОДЫ", 140.0, player.eat_berry)
+	_add_action_button(root, "ВЗЯТЬ", 260.0, player.interact)
+	_add_action_button(root, "КОСТЁР", 380.0, player.request_campfire)
 	_update_stats(100.0, 100.0, 100.0, 100.0)
 	_update_inventory(player.inventory)
 
-func joystick_script_setup(control: Control) -> void:
-	control.offset_left = 0.0
-	control.offset_top = 0.0
-	control.offset_right = 0.0
-	control.offset_bottom = 0.0
-	control.mouse_filter = Control.MOUSE_FILTER_STOP
+func _create_panel(parent: Control, panel_name: String) -> Panel:
+	var panel := Panel.new()
+	panel.name = panel_name
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#122a25", 0.84)
+	style.border_color = Color("#9dbb92", 0.42)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(15)
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.20)
+	style.shadow_size = 5
+	style.shadow_offset = Vector2(0.0, 2.0)
+	panel.add_theme_stylebox_override("panel", style)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(panel)
+	return panel
+
+func _make_label(parent: Control, text_value: String, pos: Vector2, label_size: Vector2, font_size: int, color: Color) -> Label:
+	var label := Label.new()
+	label.text = text_value
+	label.position = pos
+	label.size = label_size
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.3))
+	label.add_theme_constant_override("shadow_offset_x", 1)
+	label.add_theme_constant_override("shadow_offset_y", 1)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(label)
+	return label
+
+func _add_stat_row(parent: Panel, stat_key: String, caption: String, y: float, tint: Color) -> void:
+	var name_label := _make_label(parent, caption, Vector2(14.0, y), Vector2(104.0, 20.0), 13, Color("#dfe6d7"))
+	var bar := ProgressBar.new()
+	bar.position = Vector2(122.0, y + 7.0)
+	bar.size = Vector2(164.0, 8.0)
+	bar.min_value = 0.0
+	bar.max_value = 100.0
+	bar.value = 100.0
+	bar.show_percentage = false
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var background := StyleBoxFlat.new()
+	background.bg_color = Color("#2b4137")
+	background.set_corner_radius_all(4)
+	bar.add_theme_stylebox_override("background", background)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = tint
+	fill.set_corner_radius_all(4)
+	bar.add_theme_stylebox_override("fill", fill)
+	parent.add_child(bar)
+	var value_label := _make_label(parent, "100", Vector2(294.0, y), Vector2(47.0, 20.0), 14, Color("#f4f1e4"))
+	_stat_bars[stat_key] = bar
+	_stat_values[stat_key] = value_label
+
+func _add_crosshair(parent: Control) -> void:
+	var horizontal := ColorRect.new()
+	horizontal.position = Vector2(-5.0, -1.0)
+	horizontal.size = Vector2(10.0, 2.0)
+	horizontal.color = Color("#f2f0dc", 0.82)
+	horizontal.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var vertical := ColorRect.new()
+	vertical.position = Vector2(-1.0, -5.0)
+	vertical.size = Vector2(2.0, 10.0)
+	vertical.color = Color("#f2f0dc", 0.82)
+	vertical.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var crosshair := Control.new()
+	crosshair.name = "AimReticle"
+	crosshair.anchor_left = 0.5
+	crosshair.anchor_right = 0.5
+	crosshair.anchor_top = 0.5
+	crosshair.anchor_bottom = 0.5
+	crosshair.offset_left = 0.0
+	crosshair.offset_right = 0.0
+	crosshair.offset_top = 0.0
+	crosshair.offset_bottom = 0.0
+	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(crosshair)
+	crosshair.add_child(horizontal)
+	crosshair.add_child(vertical)
 
 func _add_action_button(parent: Control, caption: String, right_margin: float, callback: Callable) -> void:
 	var button := Button.new()
@@ -372,38 +739,60 @@ func _add_action_button(parent: Control, caption: String, right_margin: float, c
 	button.anchor_top = 1.0
 	button.anchor_bottom = 1.0
 	button.offset_right = -right_margin
-	button.offset_left = -(right_margin + 100.0)
-	button.offset_top = -100.0
-	button.offset_bottom = -24.0
-	button.add_theme_font_size_override("font_size", 19)
-	button.add_theme_color_override("font_color", Color("#f8f5e6"))
+	button.offset_left = -(right_margin + 108.0)
+	button.offset_top = -96.0
+	button.offset_bottom = -22.0
+	button.add_theme_font_size_override("font_size", 16)
+	button.add_theme_color_override("font_color", Color("#f5f4e8"))
+	button.add_theme_color_override("font_hover_color", Color("#ffffff"))
+	button.add_theme_color_override("font_pressed_color", Color("#1c342a"))
+
 	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color("#243f35")
-	normal.set_corner_radius_all(9)
-	normal.border_width_left = 1
-	normal.border_width_right = 1
-	normal.border_width_top = 1
-	normal.border_width_bottom = 1
-	normal.border_color = Color("#97b08a")
+	normal.bg_color = Color("#17372e", 0.94)
+	normal.set_corner_radius_all(14)
+	normal.set_border_width_all(1)
+	normal.border_color = Color("#b7cda4", 0.78)
+	normal.shadow_color = Color(0.0, 0.0, 0.0, 0.2)
+	normal.shadow_size = 4
+	normal.shadow_offset = Vector2(0.0, 2.0)
 	button.add_theme_stylebox_override("normal", normal)
-	var pressed := StyleBoxFlat.new()
-	pressed.bg_color = Color("#456b4d")
-	pressed.set_corner_radius_all(9)
+
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = Color("#315642", 0.98)
+	hover.border_color = Color("#d3e7b5")
+	button.add_theme_stylebox_override("hover", hover)
+
+	var pressed := normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color("#c0d89b")
+	pressed.border_color = Color("#e0ecc9")
 	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	button.pressed.connect(callback)
 	parent.add_child(button)
 
 func _update_stats(hp: float, food: float, water: float, energy: float) -> void:
-	if is_instance_valid(stats_label):
-		stats_label.text = "ЗДОРОВЬЕ %d   СЫТОСТЬ %d   ЖАЖДА %d   СИЛЫ %d" % [roundi(hp), roundi(food), roundi(water), roundi(energy)]
+	_set_stat("health", hp)
+	_set_stat("hunger", food)
+	_set_stat("thirst", water)
+	_set_stat("stamina", energy)
+
+func _set_stat(stat_key: String, value: float) -> void:
+	if _stat_bars.has(stat_key):
+		var bar := _stat_bars[stat_key] as ProgressBar
+		bar.value = clampf(value, 0.0, 100.0)
+	if _stat_values.has(stat_key):
+		var label := _stat_values[stat_key] as Label
+		label.text = str(roundi(value))
 
 func _update_inventory(inv: Dictionary) -> void:
 	if is_instance_valid(inventory_label):
-		inventory_label.text = "Ветки: %d   Камни: %d   Ягоды: %d" % [int(inv.get("branch", 0)), int(inv.get("stone", 0)), int(inv.get("berry", 0))]
+		inventory_label.text = "Ветки   %d\nКамни   %d     Ягоды   %d" % [int(inv.get("branch", 0)), int(inv.get("stone", 0)), int(inv.get("berry", 0))]
 
-func _set_message(text: String) -> void:
+func _set_message(text_value: String) -> void:
 	if is_instance_valid(message_label):
-		message_label.text = text
+		message_label.text = text_value
+	if is_instance_valid(message_panel):
+		message_panel.visible = text_value != ""
 	_message_timer = 3.2
 
 func _craft_campfire() -> void:
@@ -419,8 +808,9 @@ func _craft_campfire() -> void:
 	var place_position := player.global_position - player.global_basis.z * 2.4
 	place_position.y = 0.0
 	_spawn_campfire(place_position)
-	objective_label.text = "ЦЕЛЬ ВЫПОЛНЕНА: лагерь готов" if _campfire_count == 1 else "ЛАГЕРЬ: костров поставлено %d/3" % _campfire_count
-	_set_message("Костёр готов. Нажми ВЗЯТЬ, глядя на него, чтобы согреться.")
+	objective_title.text = "ЛАГЕРЬ  /  КОСТЁР %d ИЗ 3" % _campfire_count
+	objective_label.text = "Первый огонь горит.\nМожно исследовать долину дальше." if _campfire_count == 1 else "Лагерь расширяется.\nКостров поставлено: %d/3" % _campfire_count
+	_set_message("Костёр готов. Посмотри на него и нажми «ВЗЯТЬ», чтобы согреться.")
 
 func _spawn_campfire(pos: Vector3) -> void:
 	var fire_area := Area3D.new()
