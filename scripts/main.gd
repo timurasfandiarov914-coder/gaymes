@@ -54,7 +54,7 @@ func _build_materials() -> void:
 	_materials["ground"] = _material(Color("#587344"))
 	_materials["grass"] = _material(Color("#708c50"))
 	_materials["grass_detail"] = _material(Color("#7c984f"))
-	_materials["path"] = _material(Color("#8c774f"))
+	_materials["path"] = _material(Color("#84764f"))
 	_materials["sand"] = _material(Color("#a99363"))
 	_materials["wood"] = _material(Color("#876044"))
 	_materials["bark"] = _material(Color("#604531"))
@@ -67,8 +67,8 @@ func _build_materials() -> void:
 	_materials["stone_dark"] = _material(Color("#66756c"))
 	_materials["mountain1"] = _material(Color("#566b50"))
 	_materials["mountain2"] = _material(Color("#71805a"))
-	_materials["water"] = _material(Color("#3e9ba9"), 0.24, Color("#286c78"), 0.08)
-	_materials["water_glint"] = _material(Color("#b9e7d9", 0.38), 0.3, Color("#8fd6cf"))
+	_materials["water"] = _material(Color("#347986"), 0.42, Color("#214f5a"), 0.01)
+	_materials["water_glint"] = _material(Color("#a8d2cc", 0.28), 0.48, Color("#548f91"))
 	_materials["berry"] = _material(Color("#d84f55"), 0.65, Color("#751b30"))
 	_materials["fire"] = _material(Color("#ff9b35"), 0.4, Color("#ff712d"))
 
@@ -116,6 +116,9 @@ func _build_sky() -> void:
 	sun.light_color = Color("#f1dfbd")
 	sun.light_energy = 0.88
 	sun.shadow_enabled = true
+	sun.shadow_blur = 1.35
+	sun.shadow_opacity = 0.78
+	sun.directional_shadow_max_distance = 85.0
 	add_child(sun)
 
 func _build_ground() -> void:
@@ -136,14 +139,56 @@ func _build_ground() -> void:
 	body.add_child(collision)
 	add_child(body)
 
-	# A readable footpath leads the eye from the starting point to the crossing.
+	# A softly blended trail ribbon uses vertex colours instead of a heavy terrain shader.
 	var path := MeshInstance3D.new()
 	path.name = "WornForestTrail"
-	var path_mesh := PlaneMesh.new()
-	path_mesh.size = Vector2(4.6, 17.0)
-	path.mesh = path_mesh
-	path.material_override = _materials["path"]
-	path.position = Vector3(0.0, 0.012, -7.9)
+	var trail_mesh := ArrayMesh.new()
+	var trail_vertices := PackedVector3Array()
+	var trail_normals := PackedVector3Array()
+	var trail_colors := PackedColorArray()
+	var trail_indices := PackedInt32Array()
+	var trail_rows := 22
+	var trail_columns := 11
+	var trail_start_z := 0.35
+	var trail_end_z := STREAM_Z + 7.1
+	var trail_color: Color = (_materials["path"] as StandardMaterial3D).albedo_color
+	var ground_color: Color = (_materials["ground"] as StandardMaterial3D).albedo_color
+	for row in range(trail_rows):
+		var progress := float(row) / float(trail_rows - 1)
+		var z := lerpf(trail_start_z, trail_end_z, progress)
+		var half_width := 2.05 + sin(progress * PI * 2.0) * 0.16 + sin(progress * PI * 5.0) * 0.07
+		var curve_x := sin(progress * PI * 2.0) * 0.24 + sin(progress * PI * 4.0) * 0.06
+		var end_fade := clampf(minf(progress / 0.14, (1.0 - progress) / 0.14), 0.0, 1.0)
+		end_fade = end_fade * end_fade * (3.0 - 2.0 * end_fade)
+		for column in range(trail_columns):
+			var lateral := lerpf(-1.0, 1.0, float(column) / float(trail_columns - 1))
+			var edge := clampf((absf(lateral) - 0.48) / 0.52, 0.0, 1.0)
+			edge = edge * edge * (3.0 - 2.0 * edge)
+			var vertex_color := trail_color.lerp(ground_color, edge)
+			vertex_color = ground_color.lerp(vertex_color, end_fade)
+			trail_vertices.append(Vector3(curve_x + lateral * half_width, 0.014, z))
+			trail_normals.append(Vector3.UP)
+			trail_colors.append(vertex_color)
+	for row in range(trail_rows - 1):
+		for column in range(trail_columns - 1):
+			var a := row * trail_columns + column
+			var b := a + 1
+			var c := (row + 1) * trail_columns + column
+			var d := c + 1
+			trail_indices.append_array(PackedInt32Array([a, b, c, b, d, c]))
+	var trail_arrays: Array = []
+	trail_arrays.resize(Mesh.ARRAY_MAX)
+	trail_arrays[Mesh.ARRAY_VERTEX] = trail_vertices
+	trail_arrays[Mesh.ARRAY_NORMAL] = trail_normals
+	trail_arrays[Mesh.ARRAY_COLOR] = trail_colors
+	trail_arrays[Mesh.ARRAY_INDEX] = trail_indices
+	trail_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, trail_arrays)
+	var trail_material := StandardMaterial3D.new()
+	trail_material.vertex_color_use_as_albedo = true
+	trail_material.roughness = 1.0
+	path.mesh = trail_mesh
+	path.material_override = trail_material
+	path.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(path)
 
 	# Irregular grassy clearings break up the flat colour without heavy textures.
@@ -325,7 +370,7 @@ func _spawn_tree(pos: Vector3, scale_factor: float, tree_kind: int = -1) -> void
 	add_child(tree)
 
 	var trunk_height := _rng.randf_range(2.35, 3.1)
-	var trunk_radius := _rng.randf_range(0.19, 0.27)
+	var trunk_radius := _rng.randf_range(0.16, 0.22)
 	var trunk_body := StaticBody3D.new()
 	trunk_body.position.y = trunk_height * 0.5
 	tree.add_child(trunk_body)
@@ -391,13 +436,13 @@ func _spawn_ground_detail() -> void:
 	# MultiMesh keeps the little bits of grass cheap enough for a phone GPU.
 	var tuft_mesh := CylinderMesh.new()
 	tuft_mesh.top_radius = 0.0
-	tuft_mesh.bottom_radius = 0.085
-	tuft_mesh.height = 0.34
+	tuft_mesh.bottom_radius = 0.105
+	tuft_mesh.height = 0.42
 	tuft_mesh.radial_segments = 3
 	var tuft_multi := MultiMesh.new()
 	tuft_multi.transform_format = MultiMesh.TRANSFORM_3D
 	tuft_multi.mesh = tuft_mesh
-	tuft_multi.instance_count = 680
+	tuft_multi.instance_count = 1800
 	for i in range(tuft_multi.instance_count):
 		var x := _rng.randf_range(-47.0, 47.0)
 		var z := _rng.randf_range(-48.0, 35.0)
@@ -414,6 +459,52 @@ func _spawn_ground_detail() -> void:
 	tufts.material_override = _materials["grass_detail"]
 	tufts.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(tufts)
+
+	# Low-poly shrub clusters add variation without one scene node per bush.
+	var bush_mesh := SphereMesh.new()
+	bush_mesh.radius = 0.42
+	bush_mesh.height = 0.62
+	bush_mesh.radial_segments = 6
+	bush_mesh.rings = 3
+	var bush_multi := MultiMesh.new()
+	bush_multi.transform_format = MultiMesh.TRANSFORM_3D
+	bush_multi.use_colors = true
+	bush_multi.mesh = bush_mesh
+	bush_multi.instance_count = 125
+	var bush_tints: Array[Color] = [Color("#315c3c"), Color("#47744a"), Color("#63854e")]
+	for i in range(bush_multi.instance_count):
+		var bush_x := 0.0
+		var bush_z := 0.0
+		var valid_bush_position := false
+		for attempt in range(45):
+			bush_x = _rng.randf_range(-43.0, 43.0)
+			bush_z = _rng.randf_range(-45.0, 30.0)
+			if Vector2(bush_x, bush_z).length() < 8.0:
+				continue
+			if absf(bush_z - STREAM_Z) < 6.6:
+				continue
+			if bush_z > -15.0 and bush_z < 1.2 and absf(bush_x) < 3.6:
+				continue
+			valid_bush_position = true
+			break
+		if not valid_bush_position:
+			continue
+		var bush_scale_x := _rng.randf_range(0.65, 1.2)
+		var bush_scale_y := _rng.randf_range(0.72, 0.96)
+		var bush_scale_z := _rng.randf_range(0.65, 1.25)
+		var bush_basis := Basis(Vector3.UP, _rng.randf_range(0.0, TAU)).scaled(Vector3(bush_scale_x, bush_scale_y, bush_scale_z))
+		var bush_transform := Transform3D(bush_basis, Vector3(bush_x, 0.31 * bush_scale_y, bush_z))
+		bush_multi.set_instance_transform(i, bush_transform)
+		bush_multi.set_instance_color(i, bush_tints[_rng.randi_range(0, bush_tints.size() - 1)])
+	var bush_instance := MultiMeshInstance3D.new()
+	bush_instance.name = "ForestShrubs"
+	bush_instance.multimesh = bush_multi
+	var bush_material := StandardMaterial3D.new()
+	bush_material.vertex_color_use_as_albedo = true
+	bush_material.roughness = 1.0
+	bush_instance.material_override = bush_material
+	bush_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(bush_instance)
 
 	var pebble_mesh := SphereMesh.new()
 	pebble_mesh.radius = 0.28
