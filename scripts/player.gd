@@ -27,6 +27,8 @@ var _status_timer := 0.0
 
 func _ready() -> void:
 	add_to_group("player")
+	# A slight downward starting pitch keeps nearby terrain and pickups in view.
+	head.rotation.x = deg_to_rad(-3.5)
 	if not OS.has_feature("android"):
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_emit_state()
