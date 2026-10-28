@@ -27,7 +27,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/vf
-          tar -xJf VoxelFrontier-Source.tar.xz -C /tmp/vf
+          python3 - <<'PY'
+          import tarfile
+          with tarfile.open('VoxelFrontier-Source.tar.xz', 'r:xz') as archive:
+              archive.extractall('/tmp/vf', filter='data')
+          PY
           test -s /tmp/vf/VoxelFrontier/project.godot
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
           cp -a /tmp/vf/VoxelFrontier/. .
