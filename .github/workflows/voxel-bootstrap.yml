@@ -1,0 +1,108 @@
+name: Voxel Frontier bootstrap build
+
+on:
+  push:
+    branches: [voxel-frontier]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: voxel-frontier-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap-build:
+    name: Expand source, validate Godot, export APK
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.7.2-stable
+    steps:
+      - name: Checkout isolated bootstrap branch
+        uses: actions/checkout@v4
+
+      - name: Expand source archive into the isolated branch
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vf
+          tar -xJf VoxelFrontier-Source.tar.xz -C /tmp/vf
+          test -s /tmp/vf/VoxelFrontier/project.godot
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
+          cp -a /tmp/vf/VoxelFrontier/. .
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path(".github/workflows/android.yml")
+          s = p.read_text()
+          if "branches: [main]" not in s:
+              raise SystemExit("Expected Android workflow trigger was not found")
+          p.write_text(s.replace("branches: [main]", "branches: [main, voxel-frontier]", 1))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Bootstrap Voxel Frontier source tree"
+          git push origin HEAD:voxel-frontier
+
+      - name: Validate project structure
+        run: python3 tools/validate_project.py
+
+      - name: Configure Android export templates and debug signing
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/share/godot/export_templates" "$HOME/.config" "$HOME/.android"
+          if [ "$HOME" != "/root" ]; then
+            if [ -d /root/.local/share/godot/export_templates/4.7.2.stable ]; then
+              cp -a /root/.local/share/godot/export_templates/4.7.2.stable "$HOME/.local/share/godot/export_templates/"
+            fi
+            if [ -d /root/.config/godot ]; then cp -a /root/.config/godot "$HOME/.config/"; fi
+          fi
+          test -s "$HOME/.local/share/godot/export_templates/4.7.2.stable/android_debug.apk"
+          if [ ! -s /root/debug.keystore ]; then
+            keytool -genkeypair -v -keystore /root/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Import resources and parse scripts
+        shell: bash
+        run: |
+          set -o pipefail
+          godot --headless --editor --path . --quit 2>&1 | tee /tmp/godot-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" /tmp/godot-import.log; then
+            echo "Godot import/script errors detected."
+            exit 1
+          fi
+
+      - name: Run core tests
+        run: godot --headless --path . --script res://tests/core_tests.gd
+
+      - name: Smoke-test the main scene
+        shell: bash
+        run: |
+          set -o pipefail
+          godot --headless --path . --quit-after 5 2>&1 | tee /tmp/godot-smoke.log
+          if grep -E "SCRIPT ERROR|Parse Error|Invalid call|Invalid get index" /tmp/godot-smoke.log; then
+            echo "Godot runtime errors detected."
+            exit 1
+          fi
+
+      - name: Set development build version
+        run: |
+          sed -i "s/version\\/code=1/version\\/code=${GITHUB_RUN_NUMBER}/" export_presets.cfg
+          sed -i "s/version\\/name=\"0.1.0\"/version\\/name=\"0.1.${GITHUB_RUN_NUMBER}\"/" export_presets.cfg
+
+      - name: Export Android APK
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          godot --headless --verbose --path . --export-debug "Android" build/VoxelFrontier.apk
+          test -s build/VoxelFrontier.apk
+          unzip -t build/VoxelFrontier.apk
+          ls -lh build/VoxelFrontier.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoxelFrontier-android-bootstrap
+          path: build/VoxelFrontier.apk
+          if-no-files-found: error
+          retention-days: 30
